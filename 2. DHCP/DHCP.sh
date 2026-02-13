@@ -1,36 +1,63 @@
 #!/bin/bash
 
-# 1. Verificación e Instalación (Idempotencia)
-if ! dpkg -s isc-dhcp-server >/dev/null 2>&1; then
-    echo "Instalando isc-dhcp-server..."
-    sudo apt-get update && sudo apt-get install -y isc-dhcp-server
-else
-    echo "El servicio ya está instalado."
+INTERFACE="enp0s8"
+CONFIG_FILE="/etc/dhcp/dhcpd.conf"
+LEASE_FILE="/var/lib/dhcp/dhcpd.leases"
+SUBNET="192.168.100.0"
+NETMASK="255.255.255.0"
+
+if ! dpkg -l | grep -q isc-dhcp-server; then
+    apt update -y
+    apt install isc-dhcp-server -y
 fi
 
-# 2. Orquestación (Solicitud de parámetros)
-read -p "Nombre del Scope: " SCOPE_NAME
-read -p "IP Inicial: " IP_START
-read -p "IP Final: " IP_END
-read -p "DNS Server IP: " DNS_IP
+ip addr show $INTERFACE | grep -q "192.168.100.1"
+if [ $? -ne 0 ]; then
+    ip addr flush dev $INTERFACE
+    ip addr add 192.168.100.1/24 dev $INTERFACE
+    ip link set $INTERFACE up
+fi
 
-# 3. Configuración Dinámica
-cat <<EOF | sudo tee /etc/dhcp/dhcpd.conf
-option domain-name "sistemas.local";
-option domain-name-servers $DNS_IP;
-default-lease-time 600;
-max-lease-time 7200;
-authoritative;
+valid_ip() {
+    [[ $1 =~ ^192\.168\.100\.([0-9]{1,3})$ ]] && [ ${BASH_REMATCH[1]} -ge 1 ] && [ ${BASH_REMATCH[1]} -le 254 ]
+}
 
-subnet 192.168.100.0 netmask 255.255.255.0 {
-  range $IP_START $IP_END;
-  option routers 192.168.100.1;
+read -p "Nombre del Ambito: " SCOPENAME
+
+until valid_ip "$START"; do
+    read -p "IP Inicial: " START
+done
+
+until valid_ip "$END"; do
+    read -p "IP Final: " END
+done
+
+read -p "Duracion del Lease en horas: " LEASEHOURS
+LEASESECONDS=$((LEASEHOURS*3600))
+
+GATEWAY="192.168.100.1"
+
+cat > $CONFIG_FILE <<EOF
+default-lease-time $LEASESECONDS;
+max-lease-time $LEASESECONDS;
+
+subnet $SUBNET netmask $NETMASK {
+    range $START $END;
+    option routers $GATEWAY;
+    option subnet-mask $NETMASK;
+    option broadcast-address 192.168.100.255;
 }
 EOF
 
-# Validar y Reiniciar
-sudo dhcpd -t && sudo systemctl restart isc-dhcp-server
+sed -i "s/^INTERFACESv4=.*/INTERFACESv4=\"$INTERFACE\"/" /etc/default/isc-dhcp-server
 
-# 4. Monitoreo
-echo "--- Concesiones Activas ---"
-cat /var/lib/dhcp/dhcpd.leases
+dhcpd -t -cf $CONFIG_FILE
+
+systemctl restart isc-dhcp-server
+systemctl enable isc-dhcp-server
+
+echo "Estado del servicio:"
+systemctl status isc-dhcp-server --no-pager
+
+echo "Concesiones activas:"
+cat $LEASE_FILE
