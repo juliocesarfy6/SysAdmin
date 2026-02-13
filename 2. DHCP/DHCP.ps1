@@ -1,56 +1,61 @@
-# 1. Instalación Idempotente
+$InterfaceAlias = "Ethernet 2"
+$ServerIP = "192.168.100.1"
+$PrefixLength = 24
+$ScopeNetwork = "192.168.100.0"
+$SubnetMask = "255.255.255.0"
+
 $feature = Get-WindowsFeature DHCP
-if ($feature.Installed -eq $false) {
-    Write-Host "Instalando el rol DHCP..." -ForegroundColor Yellow
+if (-not $feature.Installed) {
     Install-WindowsFeature -Name DHCP -IncludeManagementTools
-} else {
-    Write-Host "El rol DHCP ya está instalado." -ForegroundColor Green
 }
 
-function Test-IsIPv4 ($IP) {
-    return $IP -match '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+$ipCheck = Get-NetIPAddress -InterfaceAlias $InterfaceAlias -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {$_.IPAddress -eq $ServerIP}
+if (-not $ipCheck) {
+    Get-NetIPAddress -InterfaceAlias $InterfaceAlias -AddressFamily IPv4 -ErrorAction SilentlyContinue | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
+    New-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $ServerIP -PrefixLength $PrefixLength
+}
+
+function Test-IsValidScopeIP ($IP) {
+    if ($IP -match '^192\.168\.100\.(\d{1,3})$') {
+        $last = [int]$Matches[1]
+        return ($last -ge 1 -and $last -le 254)
+    }
+    return $false
 }
 
 $ScopeName = Read-Host "Nombre del Ambito"
 
 do {
-    $StartRange = Read-Host "IP Inicial (ej. 192.168.100.50)"
-    if (-not (Test-IsIPv4 $StartRange)) { Write-Host "Formato de IP inválido." -ForegroundColor Red }
-} until (Test-IsIPv4 $StartRange)
+    $StartRange = Read-Host "IP Inicial"
+} until (Test-IsValidScopeIP $StartRange)
 
 do {
-    $EndRange = Read-Host "IP Final (ej. 192.168.100.150)"
-    if (-not (Test-IsIPv4 $EndRange)) { Write-Host "Formato de IP inválido." -ForegroundColor Red }
-} until (Test-IsIPv4 $EndRange)
+    $EndRange = Read-Host "IP Final"
+} until (Test-IsValidScopeIP $EndRange)
 
-$LeaseTime = New-TimeSpan -Days 0 -Hours 8 -Minutes 0 
+$LeaseHours = Read-Host "Duracion del Lease en horas"
+$LeaseTime = New-TimeSpan -Hours $LeaseHours
 
-try {
-    Add-DhcpServerv4Scope -Name $ScopeName -StartRange $StartRange -EndRange $EndRange -SubnetMask 255.255.255.0 -State Active -LeaseDuration $LeaseTime
-    Set-DhcpServerv4OptionValue -OptionId 3 -Value "192.168.100.1"
-    Set-DhcpServerv4OptionValue -OptionId 6 -Value "192.168.100.10" -Force
-    
-    Write-Host "Configuración completada exitosamente." -ForegroundColor Green
-} catch {
-    Write-Host "Error al configurar el ámbito: $_" -ForegroundColor Red
+$scopeExists = Get-DhcpServerv4Scope -ErrorAction SilentlyContinue | Where-Object { $_.ScopeId -eq $ScopeNetwork }
+
+if (-not $scopeExists) {
+    Add-DhcpServerv4Scope -Name $ScopeName -StartRange $StartRange -EndRange $EndRange -SubnetMask $SubnetMask -State Active -LeaseDuration $LeaseTime
 }
 
+$Gateway = Read-Host "Gateway"
+$DNS = Read-Host "DNS"
+
+Set-DhcpServerv4OptionValue -ScopeId $ScopeNetwork -Router $Gateway -DnsServer $DNS
+
+Restart-Service DHCPServer
+
 function Get-DHCPStatus {
-    Write-Host "`n==========================================" -ForegroundColor Cyan
-    Write-Host "   ESTADO DEL SERVICIO DHCP"
-    Write-Host "=========================================="
-    
     $service = Get-Service DHCPServer
-    Write-Host "Servicio: $($service.Status)"
-    
-    Write-Host "`nConcesiones (Leases) Activas:"
-    $leases = Get-DhcpServerv4Lease -ScopeId 192.168.100.0 -ErrorAction SilentlyContinue
-    if ($leases) {
-        $leases | Select-Object ClientIPAddress, HostName, AddressState | Format-Table -AutoSize
-    } else {
-        Write-Host "No hay equipos conectados actualmente." -ForegroundColor Yellow
+    Write-Host "Estado del Servicio: $($service.Status)"
+    $scope = Get-DhcpServerv4Scope | Where-Object { $_.ScopeId -eq $ScopeNetwork }
+    if ($scope) {
+        Get-DhcpServerv4Lease -ScopeId $scope.ScopeId | Select-Object ClientIPAddress, HostName, AddressState | Format-Table -AutoSize
     }
-    Write-Host "=========================================="
 }
 
 Get-DHCPStatus
