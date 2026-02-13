@@ -42,10 +42,9 @@ if (-not $scopeExists) {
     Add-DhcpServerv4Scope -Name $ScopeName -StartRange $StartRange -EndRange $EndRange -SubnetMask $SubnetMask -State Active -LeaseDuration $LeaseTime
 }
 
-$Gateway = Read-Host "Gateway"
-$DNS = Read-Host "DNS"
+$Gateway = "192.168.100.1"
 
-Set-DhcpServerv4OptionValue -ScopeId $ScopeNetwork -Router $Gateway -DnsServer $DNS
+Set-DhcpServerv4OptionValue -ScopeId $ScopeNetwork -Router $Gateway
 
 Restart-Service DHCPServer
 
