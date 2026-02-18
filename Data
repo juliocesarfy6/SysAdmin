@@ -1,0 +1,22 @@
+$adapter = Get-NetAdapter | Where-Object Status -eq "Up" | Select-Object -First 1 -ExpandProperty Name
+
+# Configurar la IP estática del servidor
+New-NetIPAddress -InterfaceAlias $adapter -IPAddress 192.168.100.20 -PrefixLength 24
+
+# (Opcional) Configurar DNS si lo necesitas después
+Set-DnsClientServerAddress -InterfaceAlias $adapter -ServerAddresses 127.0.0.1
+
+
+
+# 1. Instalar la característica
+Install-WindowsFeature DHCP -IncludeManagementTools
+
+# 2. Crear el Ámbito (Scope)
+Add-DhcpServerv4Scope -Name "Red_Sistemas" -StartRange 192.168.100.50 -EndRange 192.168.100.150 -SubnetMask 255.255.255.0
+
+# 3. Vincular a la tarjeta de red (Binding) - USAR -IPv4Address
+Set-DhcpServerv4Binding -BindingState $true -IPv4Address 192.168.100.20
+
+# 4. Autorizar el servidor (solo si no hay Dominio) y arrancar
+Set-Service DHCPServer -StartupType Automatic
+Restart-Service DHCPServer
