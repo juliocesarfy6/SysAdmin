@@ -2,22 +2,18 @@ $Dominio = Read-Host "Ingrese el nombre del dominio (ej: reprobados.com)"
 
 $regexIP = '^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$'
 
-$ipActual = Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.PrefixOrigin -eq "Dhcp"}
+$ipActual = Get-NetIPAddress -InterfaceAlias "Ethernet 2" -AddressFamily IPv4 -ErrorAction SilentlyContinue
 
-if ($ipActual) {
+if (-not $ipActual) {
+
     do {
-        $nuevaIP = Read-Host "El servidor usa DHCP. Ingrese IP fija"
+        $nuevaIP = Read-Host "Ingrese IP fija para la red interna"
     } while ($nuevaIP -notmatch $regexIP)
 
-    $gateway = Read-Host "Ingrese Gateway"
-    $dnsLocal = $nuevaIP
-
-    if (-not (Get-NetIPAddress -IPAddress $nuevaIP -ErrorAction SilentlyContinue)) {
-        New-NetIPAddress -InterfaceAlias "Ethernet 2" -IPAddress $nuevaIP -PrefixLength 24
-    }
-
-    Set-DnsClientServerAddress -InterfaceAlias "Ethernet 2" -ServerAddresses $dnsLocal
+    New-NetIPAddress -InterfaceAlias "Ethernet 2" -IPAddress $nuevaIP -PrefixLength 24
 }
+
+Set-DnsClientServerAddress -InterfaceAlias "Ethernet 2" -ServerAddresses 127.0.0.1
 
 if (!(Get-WindowsFeature -Name DNS).Installed) {
     Install-WindowsFeature -Name DNS -IncludeManagementTools
