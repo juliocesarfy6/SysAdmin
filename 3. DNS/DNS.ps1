@@ -1,6 +1,4 @@
-param(
-    [string]$Dominio = "reprobados.com"
-)
+$Dominio = Read-Host "Ingrese el nombre del dominio (ej: reprobados.com)"
 
 $regexIP = '^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$'
 
@@ -14,7 +12,10 @@ if ($ipActual) {
     $gateway = Read-Host "Ingrese Gateway"
     $dnsLocal = $nuevaIP
 
-    New-NetIPAddress -InterfaceAlias "Ethernet" -IPAddress $nuevaIP -PrefixLength 24 -DefaultGateway $gateway
+    if (-not (Get-NetIPAddress -IPAddress $nuevaIP -ErrorAction SilentlyContinue)) {
+        New-NetIPAddress -InterfaceAlias "Ethernet" -IPAddress $nuevaIP -PrefixLength 24 -DefaultGateway $gateway
+    }
+
     Set-DnsClientServerAddress -InterfaceAlias "Ethernet" -ServerAddresses $dnsLocal
 }
 
@@ -30,8 +31,8 @@ do {
     $ipDestino = Read-Host "Ingrese IP destino del cliente"
 } while ($ipDestino -notmatch $regexIP)
 
-if (-not (Get-DnsServerResourceRecord -ZoneName $Dominio -Name "@" -ErrorAction SilentlyContinue)) {
-    Add-DnsServerResourceRecordA -Name "@" -ZoneName $Dominio -IPv4Address $ipDestino
+if (-not (Get-DnsServerResourceRecord -ZoneName $Dominio -Name "" -ErrorAction SilentlyContinue)) {
+    Add-DnsServerResourceRecordA -Name "" -ZoneName $Dominio -IPv4Address $ipDestino
 }
 
 if (-not (Get-DnsServerResourceRecord -ZoneName $Dominio -Name "www" -ErrorAction SilentlyContinue)) {
@@ -41,4 +42,4 @@ if (-not (Get-DnsServerResourceRecord -ZoneName $Dominio -Name "www" -ErrorActio
 Restart-Service DNS
 
 nslookup $Dominio
-ping www.$Dominio
+nslookup www.$Dominio
