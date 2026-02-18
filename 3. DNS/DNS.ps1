@@ -13,10 +13,10 @@ if ($ipActual) {
     $dnsLocal = $nuevaIP
 
     if (-not (Get-NetIPAddress -IPAddress $nuevaIP -ErrorAction SilentlyContinue)) {
-        New-NetIPAddress -InterfaceAlias "Ethernet" -IPAddress $nuevaIP -PrefixLength 24 -DefaultGateway $gateway
+        New-NetIPAddress -InterfaceAlias "Ethernet 2" -IPAddress $nuevaIP -PrefixLength 24
     }
 
-    Set-DnsClientServerAddress -InterfaceAlias "Ethernet" -ServerAddresses $dnsLocal
+    Set-DnsClientServerAddress -InterfaceAlias "Ethernet 2" -ServerAddresses $dnsLocal
 }
 
 if (!(Get-WindowsFeature -Name DNS).Installed) {
