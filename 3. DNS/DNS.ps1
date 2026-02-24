@@ -1,105 +1,129 @@
 param(
-    [Parameter(Mandatory=$true)]
-    [string]$TargetIP,                 
+  [Parameter(Mandatory=$true)]
+  [string]$TargetIP,
 
-    [Parameter(Mandatory=$true)]
-    [string]$ServerIP,                
+  [Parameter(Mandatory=$false)]
+  [string]$ServerIP,
 
-    [Parameter(Mandatory=$true)]
-    [string]$MainDomain,               
+  [string]$Domain = "reprobados.com",
 
-    [Parameter(Mandatory=$true)]
-    [string]$ExtraDomain1,             
+  [ValidateSet("A","CNAME")]
+  [string]$WwwMode = "CNAME",
 
-    [Parameter(Mandatory=$true)]
-    [string]$ExtraDomain2,            
+  [switch]$SetStaticIP,
 
-    [string]$InterfaceAlias = "Ethernet 2",
-
-    [switch]$SetStaticIP
+  [string]$InterfaceAlias = ""
 )
 
 function Log($m){ Write-Host "[INFO] $m" -ForegroundColor Cyan }
 function Warn($m){ Write-Host "[WARN] $m" -ForegroundColor Yellow }
 function Fail($m){ throw $m }
 
-if ($SetStaticIP) {
-
-    $ipCidr = Read-Host "IP/CIDR para el servidor (ej. 192.168.100.20/24)"
-    $gw     = Read-Host "Gateway SOLO si esta interfaz lo necesita (Enter si no)"
-    
-    $ipParts = $ipCidr.Split("/")
-    $ipAddr  = $ipParts[0]
-    $prefix  = [int]$ipParts[1]
-
-    Log "Configurando IP fija en $InterfaceAlias -> $ipAddr/$prefix"
-
-    Get-NetIPAddress -InterfaceAlias $InterfaceAlias -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-        Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
-
-    if ([string]::IsNullOrWhiteSpace($gw)) {
-        New-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $ipAddr -PrefixLength $prefix
-    } else {
-        New-NetIPAddress -InterfaceAlias $InterfaceAlias -IPAddress $ipAddr -PrefixLength $prefix -DefaultGateway $gw
-    }
+function Get-InternalInterface {
+  $configs = Get-NetIPConfiguration | Where-Object {
+    $_.NetAdapter.Status -eq "Up" -and
+    $_.IPv4DefaultGateway -eq $null
+  }
+  if ($configs.Count -eq 0) { Fail "No se encontró interfaz de red interna activa." }
+  return $configs[0].InterfaceAlias
 }
 
-Set-DnsClientServerAddress -InterfaceAlias $InterfaceAlias -ServerAddresses 127.0.0.1
+function Has-StaticIP($ifName){
+  $ip = Get-NetIPAddress -InterfaceAlias $ifName -AddressFamily IPv4 -ErrorAction SilentlyContinue
+  return ($ip | Where-Object { $_.PrefixOrigin -eq "Manual" }) -ne $null
+}
+
+function Configure-StaticIP($ifName){
+  $ipCidr = Read-Host "IP/CIDR para el servidor (ej. 192.168.100.10/24)"
+  $gw     = Read-Host "Gateway (si no aplica, dejar vacío)"
+  $dns    = Read-Host "DNS upstream (ej. 8.8.8.8)"
+
+  $ipParts = $ipCidr.Split("/")
+  $ipAddr  = $ipParts[0]
+  $prefix  = [int]$ipParts[1]
+
+  Get-NetIPAddress -InterfaceAlias $ifName -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
+
+  if ([string]::IsNullOrWhiteSpace($gw)) {
+    New-NetIPAddress -InterfaceAlias $ifName -IPAddress $ipAddr -PrefixLength $prefix
+  } else {
+    New-NetIPAddress -InterfaceAlias $ifName -IPAddress $ipAddr -PrefixLength $prefix -DefaultGateway $gw
+  }
+
+  Set-DnsClientServerAddress -InterfaceAlias $ifName -ServerAddresses $dns
+}
+
+if ([string]::IsNullOrWhiteSpace($InterfaceAlias)) {
+  $InterfaceAlias = Get-InternalInterface
+}
+
+if ($SetStaticIP) {
+  if (Has-StaticIP $InterfaceAlias) {
+    Log "IP fija detectada en $InterfaceAlias."
+  } else {
+    Warn "No se detectó IP fija en $InterfaceAlias."
+    Configure-StaticIP $InterfaceAlias
+  }
+}
+
+$serverCurrentIP = (Get-NetIPAddress -InterfaceAlias $InterfaceAlias -AddressFamily IPv4 |
+                    Where-Object {$_.PrefixOrigin -eq "Manual"} |
+                    Select-Object -First 1).IPAddress
+
+if (-not $serverCurrentIP) { Fail "No se pudo determinar la IP del servidor." }
 
 $dnsFeature = Get-WindowsFeature DNS
 if (-not $dnsFeature.Installed) {
-    Log "Instalando rol DNS..."
-    Install-WindowsFeature DNS -IncludeManagementTools | Out-Null
-} else {
-    Log "Rol DNS ya instalado."
+  Install-WindowsFeature DNS -IncludeManagementTools | Out-Null
 }
 
-$domains = @($MainDomain, $ExtraDomain1, $ExtraDomain2)
-
-foreach ($domain in $domains) {
-
-    if (-not (Get-DnsServerZone -Name $domain -ErrorAction SilentlyContinue)) {
-        Log "Creando zona primaria: $domain"
-        Add-DnsServerPrimaryZone -Name $domain -ZoneFile "$domain.dns" -DynamicUpdate None
-    } else {
-        Log "Zona $domain ya existe."
-    }
+$zone = Get-DnsServerZone -Name $Domain -ErrorAction SilentlyContinue
+if (-not $zone) {
+  Add-DnsServerPrimaryZone -Name $Domain -ZoneFile "$Domain.dns" -DynamicUpdate None
 }
 
-$rootA = Get-DnsServerResourceRecord -ZoneName $MainDomain -Name "" -RRType "A" -ErrorAction SilentlyContinue
-
+$rootA = Get-DnsServerResourceRecord -ZoneName $Domain -Name "@" -RRType "A" -ErrorAction SilentlyContinue
 if ($rootA) {
-    Log "Actualizando A (root) -> $TargetIP"
-    $newRec = $rootA.Clone()
-    $newRec.RecordData.IPv4Address = [System.Net.IPAddress]::Parse($TargetIP)
-    Set-DnsServerResourceRecord -ZoneName $MainDomain -OldInputObject $rootA -NewInputObject $newRec | Out-Null
+  $newRec = $rootA.Clone()
+  $newRec.RecordData.IPv4Address = [System.Net.IPAddress]::Parse($TargetIP)
+  Set-DnsServerResourceRecord -ZoneName $Domain -OldInputObject $rootA -NewInputObject $newRec | Out-Null
 } else {
-    Log "Creando A (root) -> $TargetIP"
-    Add-DnsServerResourceRecordA -ZoneName $MainDomain -Name "" -IPv4Address $TargetIP
+  Add-DnsServerResourceRecordA -ZoneName $Domain -Name "@" -IPv4Address $TargetIP
 }
 
-$wwwA = Get-DnsServerResourceRecord -ZoneName $MainDomain -Name "www" -RRType "A" -ErrorAction SilentlyContinue
+if ($WwwMode -eq "CNAME") {
+  $wwwA = Get-DnsServerResourceRecord -ZoneName $Domain -Name "www" -RRType "A" -ErrorAction SilentlyContinue
+  if ($wwwA) {
+    Remove-DnsServerResourceRecord -ZoneName $Domain -RRType "A" -Name "www" -RecordData $wwwA.RecordData -Force
+  }
 
-if ($wwwA) {
-    Log "Actualizando A (www) -> $TargetIP"
+  $wwwC = Get-DnsServerResourceRecord -ZoneName $Domain -Name "www" -RRType "CNAME" -ErrorAction SilentlyContinue
+  if (-not $wwwC) {
+    Add-DnsServerResourceRecordCName -ZoneName $Domain -Name "www" -HostNameAlias "$Domain"
+  }
+} else {
+  $wwwC = Get-DnsServerResourceRecord -ZoneName $Domain -Name "www" -RRType "CNAME" -ErrorAction SilentlyContinue
+  if ($wwwC) {
+    Remove-DnsServerResourceRecord -ZoneName $Domain -RRType "CNAME" -Name "www" -RecordData $wwwC.RecordData -Force
+  }
+
+  $wwwA = Get-DnsServerResourceRecord -ZoneName $Domain -Name "www" -RRType "A" -ErrorAction SilentlyContinue
+  if ($wwwA) {
     $newRec = $wwwA.Clone()
     $newRec.RecordData.IPv4Address = [System.Net.IPAddress]::Parse($TargetIP)
-    Set-DnsServerResourceRecord -ZoneName $MainDomain -OldInputObject $wwwA -NewInputObject $newRec | Out-Null
-} else {
-    Log "Creando A (www) -> $TargetIP"
-    Add-DnsServerResourceRecordA -ZoneName $MainDomain -Name "www" -IPv4Address $TargetIP
+    Set-DnsServerResourceRecord -ZoneName $Domain -OldInputObject $wwwA -NewInputObject $newRec | Out-Null
+  } else {
+    Add-DnsServerResourceRecordA -ZoneName $Domain -Name "www" -IPv4Address $TargetIP
+  }
 }
 
-if (-not (Get-DnsServerForwarder)) {
-    Log "Agregando forwarders públicos..."
-    Add-DnsServerForwarder -IPAddress 8.8.8.8,1.1.1.1 -ErrorAction SilentlyContinue
+$svc = Get-Service -Name DNS -ErrorAction SilentlyContinue
+if ($svc.Status -ne "Running") {
+  Start-Service DNS
 }
 
-if ((Get-Service DNS).Status -ne "Running") {
-    Start-Service DNS
-}
-
-Log "DNS configurado correctamente."
-Log "Pruebas sugeridas:"
-Write-Host "nslookup $MainDomain 127.0.0.1"
-Write-Host "nslookup www.$MainDomain 127.0.0.1"
+Log "DNS Server listo."
+Log "Pruebas desde cliente:"
+Log "nslookup $Domain $serverCurrentIP"
+Log "ping www.$Domain"
