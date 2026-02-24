@@ -67,11 +67,19 @@ if ($SetStaticIP) {
   }
 }
 
-$serverCurrentIP = (Get-NetIPAddress -InterfaceAlias $InterfaceAlias -AddressFamily IPv4 |
-                    Where-Object {$_.PrefixOrigin -eq "Manual"} |
-                    Select-Object -First 1).IPAddress
+if (-not $serverCurrentIP) {
+  if (-not $SetStaticIP) {
+    Write-Host "No se detectó IP fija. Se procederá a configurarla." -ForegroundColor Yellow
+    Configure-StaticIP $InterfaceAlias
+    $serverCurrentIP = (Get-NetIPAddress -InterfaceAlias $InterfaceAlias -AddressFamily IPv4 |
+                        Where-Object {$_.PrefixOrigin -eq "Manual"} |
+                        Select-Object -First 1).IPAddress
+  }
 
-if (-not $serverCurrentIP) { Fail "No se pudo determinar la IP del servidor." }
+  if (-not $serverCurrentIP) {
+    Fail "No se pudo determinar la IP del servidor."
+  }
+}
 
 $dnsFeature = Get-WindowsFeature DNS
 if (-not $dnsFeature.Installed) {
