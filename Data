@@ -1,30 +1,7 @@
-Add-DnsServerPrimaryZone -Name "tostitos.com" -ZoneFile "tostitos.com.dns"
-Add-DnsServerPrimaryZone -Name "principe.com" -ZoneFile "principe.com.dns"
-Add-DnsServerPrimaryZone -Name "flaminhot.mx" -ZoneFile "flaminhot.mx.dns"
-
-
-Add-DnsServerResourceRecordA -ZoneName "tostitos.com" -Name "@" -IPv4Address 192.168.100.20
-Add-DnsServerResourceRecordA -ZoneName "principe.com" -Name "@" -IPv4Address 192.168.100.20
 Add-DnsServerResourceRecordA -ZoneName "flaminhot.mx" -Name "@" -IPv4Address 192.168.100.20
-
-
-
-
-Add-DnsServerResourceRecordCName -ZoneName "tostitos.com" -Name "www" -HostNameAlias "tostitos.com"
-Add-DnsServerResourceRecordCName -ZoneName "principe.com" -Name "www" -HostNameAlias "principe.com"
 Add-DnsServerResourceRecordCName -ZoneName "flaminhot.mx" -Name "www" -HostNameAlias "flaminhot.mx"
 
 
 
-
-Add-DnsServerResourceRecordA -ZoneName "flaminhot.mx" -Name "www" -IPv4Address 192.168.100.20
+Remove-DnsServerZone -Name "reprobados.com" -Force
 Restart-Service DNS
-
-
-
-nslookup flaminhot.mx 192.168.100.10
-ping www.flaminhot.mx
-
-
-
-Add-DnsServerPrimaryZone -Name "tostitos.com" -ZoneFile "tostitos.com.dns"
