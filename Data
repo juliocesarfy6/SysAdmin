@@ -1,24 +1,30 @@
-$adapter = Get-NetAdapter | Where-Object Status -eq "Up" | Select-Object -First 1 -ExpandProperty Name
-
-# Configurar la IP estática del servidor
-New-NetIPAddress -InterfaceAlias $adapter -IPAddress 192.168.100.20 -PrefixLength 24
-
-# (Opcional) Configurar DNS si lo necesitas después
-Set-DnsClientServerAddress -InterfaceAlias $adapter -ServerAddresses 127.0.0.1
+Add-DnsServerPrimaryZone -Name "tostitos.com" -ZoneFile "tostitos.com.dns"
+Add-DnsServerPrimaryZone -Name "principe.com" -ZoneFile "principe.com.dns"
+Add-DnsServerPrimaryZone -Name "flaminhot.mx" -ZoneFile "flaminhot.mx.dns"
 
 
+Add-DnsServerResourceRecordA -ZoneName "tostitos.com" -Name "@" -IPv4Address 192.168.100.20
+Add-DnsServerResourceRecordA -ZoneName "principe.com" -Name "@" -IPv4Address 192.168.100.20
+Add-DnsServerResourceRecordA -ZoneName "flaminhot.mx" -Name "@" -IPv4Address 192.168.100.20
 
-# 1. Instalar la característica
-Install-WindowsFeature DHCP -IncludeManagementTools
 
-# 2. Crear el Ámbito (Scope)
-Add-DhcpServerv4Scope -Name "Red_Sistemas" -StartRange 192.168.100.50 -EndRange 192.168.100.150 -SubnetMask 255.255.255.0
 
-# 3. Vincular a la tarjeta de red (Binding) - USAR -IPv4Address
-Set-DhcpServerv4Binding -BindingState $true -IPv4Address 192.168.100.20
 
-# 4. Autorizar el servidor (solo si no hay Dominio) y arrancar
-Set-Service DHCPServer -StartupType Automatic
-Restart-Service DHCPServer
-# Esto limpia cualquier IP previa y asigna la 192.168.100.20
-New-NetIPAddress -InterfaceAlias "Ethernet 2" -IPAddress 192.168.100.20 -PrefixLength 24 -Confirm:$false
+Add-DnsServerResourceRecordCName -ZoneName "tostitos.com" -Name "www" -HostNameAlias "tostitos.com"
+Add-DnsServerResourceRecordCName -ZoneName "principe.com" -Name "www" -HostNameAlias "principe.com"
+Add-DnsServerResourceRecordCName -ZoneName "flaminhot.mx" -Name "www" -HostNameAlias "flaminhot.mx"
+
+
+
+
+Add-DnsServerResourceRecordA -ZoneName "flaminhot.mx" -Name "www" -IPv4Address 192.168.100.20
+Restart-Service DNS
+
+
+
+nslookup flaminhot.mx 192.168.100.10
+ping www.flaminhot.mx
+
+
+
+Add-DnsServerPrimaryZone -Name "tostitos.com" -ZoneFile "tostitos.com.dns"
