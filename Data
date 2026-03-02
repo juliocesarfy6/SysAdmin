@@ -1,7 +1,7 @@
-Add-DnsServerResourceRecordA -ZoneName "flaminhot.mx" -Name "@" -IPv4Address 192.168.100.20
+Add-DnsServerPrimaryZone -Name "flaminhot.mx" -ZoneFile "flaminhot.mx.dns"
+Get-DnsServerResourceRecord -ZoneName "reprobados.com" -RRType A
+Add-DnsServerResourceRecordA -ZoneName "flaminhot.mx" -Name "@" -IPv4Address 192.168.100.37
 Add-DnsServerResourceRecordCName -ZoneName "flaminhot.mx" -Name "www" -HostNameAlias "flaminhot.mx"
-
-
-
+Add-DnsServerResourceRecordA -ZoneName "flaminhot.mx" -Name "www" -IPv4Address 192.168.100.20
 Remove-DnsServerZone -Name "reprobados.com" -Force
 Restart-Service DNS
