@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DOMAIN_DEFAULT="reprobados.com"
-ZONEFILE_DEFAULT="/var/cache/bind/db.reprobados.com"
+DOMAIN_DEFAULT=""
+ZONEFILE_BASE="/var/cache/bind"
 NAMED_LOCAL="/etc/bind/named.conf.local"
 NAMED_OPTIONS="/etc/bind/named.conf.options"
 
@@ -180,7 +180,7 @@ main(){
   need_root
 
   local domain="$DOMAIN_DEFAULT"
-  local zonefile="$ZONEFILE_DEFAULT"
+  local zonefile=""
   local target_ip=""
   local server_ip=""
   local use_cname="true"
@@ -198,6 +198,12 @@ main(){
 
   [[ -n "$target_ip" ]] || err "Falta --target-ip"
   [[ -n "$server_ip" ]] || err "Falta --server-ip"
+
+  if [[ -z "$domain" ]]; then
+    read -r -p "Ingrese el nombre del dominio funcional (ej. flaminhot.mx): " domain
+  fi
+
+  zonefile="${ZONEFILE_BASE}/db.${domain}"
 
   if ! has_static_ip_netplan; then
     iface="$(detect_iface)"
