@@ -5,7 +5,7 @@ param(
   [Parameter(Mandatory=$false)]
   [string]$ServerIP,
 
-  [string]$Domain = "reprobados.com",
+  [string]$Domain,
 
   [ValidateSet("A","CNAME")]
   [string]$WwwMode = "CNAME",
@@ -14,6 +14,10 @@ param(
 
   [string]$InterfaceAlias = ""
 )
+
+if ([string]::IsNullOrWhiteSpace($Domain)) {
+  $Domain = Read-Host "Ingrese el nombre del dominio funcional (ej. flaminhot.mx)"
+}
 
 function Log($m){ Write-Host "[INFO] $m" -ForegroundColor Cyan }
 function Warn($m){ Write-Host "[WARN] $m" -ForegroundColor Yellow }
@@ -67,18 +71,12 @@ if ($SetStaticIP) {
   }
 }
 
-if (-not $serverCurrentIP) {
-  if (-not $SetStaticIP) {
-    Write-Host "No se detectó IP fija. Se procederá a configurarla." -ForegroundColor Yellow
-    Configure-StaticIP $InterfaceAlias
-    $serverCurrentIP = (Get-NetIPAddress -InterfaceAlias $InterfaceAlias -AddressFamily IPv4 |
-                        Where-Object {$_.PrefixOrigin -eq "Manual"} |
-                        Select-Object -First 1).IPAddress
-  }
+$serverCurrentIP = (Get-NetIPAddress -InterfaceAlias $InterfaceAlias -AddressFamily IPv4 |
+                    Where-Object {$_.PrefixOrigin -eq "Manual"} |
+                    Select-Object -First 1).IPAddress
 
-  if (-not $serverCurrentIP) {
-    Fail "No se pudo determinar la IP del servidor."
-  }
+if (-not $serverCurrentIP) {
+  Fail "No se pudo determinar la IP del servidor."
 }
 
 $dnsFeature = Get-WindowsFeature DNS
@@ -91,6 +89,14 @@ if (-not $zone) {
   Add-DnsServerPrimaryZone -Name $Domain -ZoneFile "$Domain.dns" -DynamicUpdate None
 }
 
+if (-not (Get-DnsServerZone -Name "zona1.local" -ErrorAction SilentlyContinue)) {
+  Add-DnsServerPrimaryZone -Name "zona1.local" -ZoneFile "zona1.local.dns"
+}
+
+if (-not (Get-DnsServerZone -Name "zona2.local" -ErrorAction SilentlyContinue)) {
+  Add-DnsServerPrimaryZone -Name "zona2.local" -ZoneFile "zona2.local.dns"
+}
+
 $rootA = Get-DnsServerResourceRecord -ZoneName $Domain -Name "@" -RRType "A" -ErrorAction SilentlyContinue
 if ($rootA) {
   $newRec = $rootA.Clone()
@@ -101,20 +107,15 @@ if ($rootA) {
 }
 
 if ($WwwMode -eq "CNAME") {
-  $wwwA = Get-DnsServerResourceRecord -ZoneName $Domain -Name "www" -RRType "A" -ErrorAction SilentlyContinue
-  if ($wwwA) {
-    Remove-DnsServerResourceRecord -ZoneName $Domain -RRType "A" -Name "www" -RecordData $wwwA.RecordData -Force
-  }
+  Get-DnsServerResourceRecord -ZoneName $Domain -Name "www" -RRType "A" -ErrorAction SilentlyContinue |
+    Remove-DnsServerResourceRecord -ZoneName $Domain -Force -ErrorAction SilentlyContinue
 
-  $wwwC = Get-DnsServerResourceRecord -ZoneName $Domain -Name "www" -RRType "CNAME" -ErrorAction SilentlyContinue
-  if (-not $wwwC) {
+  if (-not (Get-DnsServerResourceRecord -ZoneName $Domain -Name "www" -RRType "CNAME" -ErrorAction SilentlyContinue)) {
     Add-DnsServerResourceRecordCName -ZoneName $Domain -Name "www" -HostNameAlias "$Domain"
   }
 } else {
-  $wwwC = Get-DnsServerResourceRecord -ZoneName $Domain -Name "www" -RRType "CNAME" -ErrorAction SilentlyContinue
-  if ($wwwC) {
-    Remove-DnsServerResourceRecord -ZoneName $Domain -RRType "CNAME" -Name "www" -RecordData $wwwC.RecordData -Force
-  }
+  Get-DnsServerResourceRecord -ZoneName $Domain -Name "www" -RRType "CNAME" -ErrorAction SilentlyContinue |
+    Remove-DnsServerResourceRecord -ZoneName $Domain -Force -ErrorAction SilentlyContinue
 
   $wwwA = Get-DnsServerResourceRecord -ZoneName $Domain -Name "www" -RRType "A" -ErrorAction SilentlyContinue
   if ($wwwA) {
@@ -132,6 +133,10 @@ if ($svc.Status -ne "Running") {
 }
 
 Log "DNS Server listo."
-Log "Pruebas desde cliente:"
+Log "Zonas creadas:"
+Log " - $Domain (funcional)"
+Log " - zona1.local (no funcional)"
+Log " - zona2.local (no funcional)"
+Log "Pruebas:"
 Log "nslookup $Domain $serverCurrentIP"
-Log "ping www.$Domain"
+Log "nslookup zona1.local $serverCurrentIP"
