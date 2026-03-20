@@ -7,6 +7,10 @@ param(
 
   [string]$Domain,
 
+  [string]$FakeZone1,
+
+  [string]$FakeZone2,
+
   [ValidateSet("A","CNAME")]
   [string]$WwwMode = "CNAME",
 
@@ -17,6 +21,14 @@ param(
 
 if ([string]::IsNullOrWhiteSpace($Domain)) {
   $Domain = Read-Host "Ingrese el nombre del dominio funcional (ej. flaminhot.mx)"
+}
+
+if ([string]::IsNullOrWhiteSpace($FakeZone1)) {
+  $FakeZone1 = Read-Host "Ingrese el nombre de la zona no funcional 1"
+}
+
+if ([string]::IsNullOrWhiteSpace($FakeZone2)) {
+  $FakeZone2 = Read-Host "Ingrese el nombre de la zona no funcional 2"
 }
 
 function Log($m){ Write-Host "[INFO] $m" -ForegroundColor Cyan }
@@ -72,7 +84,6 @@ if ($SetStaticIP) {
 }
 
 $serverCurrentIP = (Get-NetIPAddress -InterfaceAlias $InterfaceAlias -AddressFamily IPv4 |
-                    Where-Object {$_.PrefixOrigin -eq "Manual"} |
                     Select-Object -First 1).IPAddress
 
 if (-not $serverCurrentIP) {
@@ -89,12 +100,12 @@ if (-not $zone) {
   Add-DnsServerPrimaryZone -Name $Domain -ZoneFile "$Domain.dns" -DynamicUpdate None
 }
 
-if (-not (Get-DnsServerZone -Name "zona1.local" -ErrorAction SilentlyContinue)) {
-  Add-DnsServerPrimaryZone -Name "zona1.local" -ZoneFile "zona1.local.dns"
+if (-not (Get-DnsServerZone -Name $FakeZone1 -ErrorAction SilentlyContinue)) {
+  Add-DnsServerPrimaryZone -Name $FakeZone1 -ZoneFile "$FakeZone1.dns"
 }
 
-if (-not (Get-DnsServerZone -Name "zona2.local" -ErrorAction SilentlyContinue)) {
-  Add-DnsServerPrimaryZone -Name "zona2.local" -ZoneFile "zona2.local.dns"
+if (-not (Get-DnsServerZone -Name $FakeZone2 -ErrorAction SilentlyContinue)) {
+  Add-DnsServerPrimaryZone -Name $FakeZone2 -ZoneFile "$FakeZone2.dns"
 }
 
 $rootA = Get-DnsServerResourceRecord -ZoneName $Domain -Name "@" -RRType "A" -ErrorAction SilentlyContinue
@@ -135,8 +146,8 @@ if ($svc.Status -ne "Running") {
 Log "DNS Server listo."
 Log "Zonas creadas:"
 Log " - $Domain (funcional)"
-Log " - zona1.local (no funcional)"
-Log " - zona2.local (no funcional)"
+Log " - $FakeZone1"
+Log " - $FakeZone2"
 Log "Pruebas:"
 Log "nslookup $Domain $serverCurrentIP"
-Log "nslookup zona1.local $serverCurrentIP"
+Log "nslookup $FakeZone1 $serverCurrentIP"
