@@ -1,6 +1,7 @@
 #!/bin/bash
 
-source ../Modulos_Linux/ftp_funciones.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/ftp_funciones.sh"
 
 require_root
 

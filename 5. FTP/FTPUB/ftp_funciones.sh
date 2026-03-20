@@ -13,9 +13,6 @@ require_root() {
     fi
 }
 
-# --------------------------
-# INSTALACIÓN
-# --------------------------
 instalar_vsftpd() {
     if dpkg -s vsftpd &>/dev/null; then
         echo "vsftpd ya instalado"
@@ -26,9 +23,6 @@ instalar_vsftpd() {
     fi
 }
 
-# --------------------------
-# GRUPOS
-# --------------------------
 crear_grupos() {
     for g in reprobados recursadores; do
         if getent group "$g" > /dev/null; then
@@ -40,17 +34,12 @@ crear_grupos() {
     done
 }
 
-# --------------------------
-# ESTRUCTURA
-# --------------------------
 crear_estructura() {
-
     mkdir -p "$GENERAL"
     mkdir -p "$REPROBADOS"
     mkdir -p "$RECURSADORES"
     mkdir -p "$USUARIOS"
 
-    # Permisos
     chmod 755 "$GENERAL"
 
     chown root:reprobados "$REPROBADOS"
@@ -64,11 +53,7 @@ crear_estructura() {
     echo "Estructura creada"
 }
 
-# --------------------------
-# CONFIG VSFTPD
-# --------------------------
 configurar_vsftpd() {
-
     cp /etc/vsftpd.conf /etc/vsftpd.conf.bak
 
     cat > /etc/vsftpd.conf <<EOF
@@ -94,20 +79,13 @@ EOF
     echo "vsftpd configurado"
 }
 
-# --------------------------
-# SERVICIO
-# --------------------------
 iniciar_servicio() {
     systemctl enable vsftpd
     systemctl restart vsftpd
     systemctl status vsftpd --no-pager
 }
 
-# --------------------------
-# USUARIOS
-# --------------------------
 crear_usuario() {
-
     read -p "Usuario: " user
     read -s -p "Password: " pass
     echo
@@ -123,19 +101,16 @@ crear_usuario() {
     useradd -M -d "$HOME_DIR" -s /usr/sbin/nologin -g "$grupo" "$user"
     echo "$user:$pass" | chpasswd
 
-    # Crear estructura del usuario
     mkdir -p "$HOME_DIR/$user"
     mkdir -p "$HOME_DIR/general"
     mkdir -p "$HOME_DIR/$grupo"
 
-    # Permisos
     chown root:root "$HOME_DIR"
     chmod 755 "$HOME_DIR"
 
     chown "$user:$grupo" "$HOME_DIR/$user"
     chmod 700 "$HOME_DIR/$user"
 
-    # Montajes (para que vea carpetas reales)
     mount --bind "$GENERAL" "$HOME_DIR/general"
     mount --bind "$FTP_ROOT/$grupo" "$HOME_DIR/$grupo"
 
@@ -177,9 +152,6 @@ cambiar_grupo() {
     echo "Grupo actualizado"
 }
 
-# --------------------------
-# MENÚ
-# --------------------------
 menu_usuarios() {
     while true; do
         echo ""
