@@ -1,8 +1,5 @@
 #!/bin/bash
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../Modulos_Linux/usuarios.sh"
-
 verificar_root() {
     if [[ $EUID -ne 0 ]]; then
         echo "Este script debe ejecutarse como root."
@@ -24,7 +21,6 @@ instalar_servicio() {
 }
 
 configurar_servicio() {
-    echo "Entrando a configuraciones..."
     configurar_vsftpd
     crear_estructura_base
     crear_grupos_base
@@ -33,14 +29,11 @@ configurar_servicio() {
 }
 
 configurar_vsftpd() {
-    echo "Configurando vsftpd..."
-
     local conf_file="/etc/vsftpd.conf"
     local backup_file="/etc/vsftpd.conf.bak"
 
     if [[ -f "$conf_file" && ! -f "$backup_file" ]]; then
         cp "$conf_file" "$backup_file"
-        echo "Backup realizado en $backup_file"
     fi
 
     cat > "$conf_file" <<EOF
@@ -70,92 +63,114 @@ anon_mkdir_write_enable=NO
 anon_other_write_enable=NO
 EOF
 
-    echo "Archivo vsftpd.conf configurado correctamente."
+    echo "vsftpd configurado correctamente."
 }
 
 crear_estructura_base() {
-    local carpeta_raiz="/srv/ftp"
-    local carpetas_base=(
-        "$carpeta_raiz/general"
-        "$carpeta_raiz/reprobados"
-        "$carpeta_raiz/recursadores"
-        "$carpeta_raiz/usuarios"
-    )
-
-    echo "Configurando carpetas base del FTP..."
-
-    if [[ ! -d "$carpeta_raiz" ]]; then
-        mkdir -p "$carpeta_raiz"
-        echo "Carpeta principal '$carpeta_raiz' creada."
-    else
-        echo "Carpeta principal '$carpeta_raiz' ya existe."
-    fi
-
-    for carpeta in "${carpetas_base[@]}"; do
-        if [[ ! -d "$carpeta" ]]; then
-            mkdir -p "$carpeta"
-            echo "Carpeta '$carpeta' creada."
-        else
-            echo "Carpeta '$carpeta' ya existe."
-        fi
-    done
-
-    echo "Carpetas base configuradas exitosamente."
+    mkdir -p /srv/ftp/general
+    mkdir -p /srv/ftp/reprobados
+    mkdir -p /srv/ftp/recursadores
+    mkdir -p /srv/ftp/usuarios
 }
 
 crear_grupos_base() {
-    local grupos=("reprobados" "recursadores")
-
-    echo "Creando grupos locales de Linux para FTP..."
-
-    for group_name in "${grupos[@]}"; do
+    for group_name in reprobados recursadores; do
         if ! getent group "$group_name" > /dev/null; then
             groupadd "$group_name"
-            if [[ $? -eq 0 ]]; then
-                echo "Grupo '$group_name' creado exitosamente."
-            else
-                echo "Error al crear el grupo '$group_name'."
-                exit 1
-            fi
-        else
-            echo "El grupo '$group_name' ya existe."
         fi
     done
-
-    echo "Grupos locales creados exitosamente."
 }
 
 configurar_permisos_base() {
-    local carpeta_raiz="/srv/ftp"
-    local carpeta_general="$carpeta_raiz/general"
-    local carpeta_reprobados="$carpeta_raiz/reprobados"
-    local carpeta_recursadores="$carpeta_raiz/recursadores"
-    local carpeta_usuarios="$carpeta_raiz/usuarios"
-
     apt-get install acl -y
 
-    chmod 755 "$carpeta_raiz"
-    chmod 755 "$carpeta_general"
-    chmod 755 "$carpeta_usuarios"
+    chmod 755 /srv/ftp
+    chmod 755 /srv/ftp/general
+    chmod 755 /srv/ftp/usuarios
 
-    chown root:reprobados "$carpeta_reprobados"
-    chmod 2770 "$carpeta_reprobados"
+    chown root:reprobados /srv/ftp/reprobados
+    chmod 2770 /srv/ftp/reprobados
 
-    chown root:recursadores "$carpeta_recursadores"
-    chmod 2770 "$carpeta_recursadores"
+    chown root:recursadores /srv/ftp/recursadores
+    chmod 2770 /srv/ftp/recursadores
 
-    setfacl -m g:reprobados:rwx "$carpeta_general"
-    setfacl -m g:recursadores:rwx "$carpeta_general"
-    setfacl -d -m g:reprobados:rwx "$carpeta_general"
-    setfacl -d -m g:recursadores:rwx "$carpeta_general"
-
-    echo "Permisos base configurados correctamente."
+    setfacl -m g:reprobados:rwx /srv/ftp/general
+    setfacl -m g:recursadores:rwx /srv/ftp/general
+    setfacl -d -m g:reprobados:rwx /srv/ftp/general
+    setfacl -d -m g:recursadores:rwx /srv/ftp/general
 }
 
 reiniciar_servicio() {
     systemctl restart vsftpd
     systemctl enable vsftpd
     systemctl status vsftpd --no-pager
+}
+
+crear_usuario() {
+    read -p "Nombre de usuario: " usuario
+    read -s -p "Contraseña: " password
+    echo
+    read -p "Grupo (reprobados/recursadores): " grupo
+
+    if [[ "$grupo" != "reprobados" && "$grupo" != "recursadores" ]]; then
+        echo "Grupo inválido."
+        return
+    fi
+
+    local home_dir="/srv/ftp/usuarios/$usuario"
+
+    useradd -m -d "$home_dir" -s /bin/bash -g "$grupo" "$usuario"
+    echo "$usuario:$password" | chpasswd
+
+    mkdir -p "$home_dir/general"
+    mkdir -p "$home_dir/$grupo"
+    mkdir -p "$home_dir/$usuario"
+
+    mount --bind /srv/ftp/general "$home_dir/general"
+    mount --bind "/srv/ftp/$grupo" "$home_dir/$grupo"
+
+    chown root:root "$home_dir"
+    chmod 755 "$home_dir"
+
+    chown "$usuario:$grupo" "$home_dir/$usuario"
+    chmod 700 "$home_dir/$usuario"
+
+    echo "Usuario creado correctamente."
+}
+
+eliminar_usuario() {
+    read -p "Usuario a eliminar: " usuario
+
+    umount "/srv/ftp/usuarios/$usuario/general" 2>/dev/null
+    umount "/srv/ftp/usuarios/$usuario/reprobados" 2>/dev/null
+    umount "/srv/ftp/usuarios/$usuario/recursadores" 2>/dev/null
+
+    userdel -r "$usuario" 2>/dev/null
+    rm -rf "/srv/ftp/usuarios/$usuario"
+
+    echo "Usuario eliminado correctamente."
+}
+
+editar_grupo() {
+    read -p "Usuario: " usuario
+    read -p "Nuevo grupo (reprobados/recursadores): " grupo
+
+    if [[ "$grupo" != "reprobados" && "$grupo" != "recursadores" ]]; then
+        echo "Grupo inválido."
+        return
+    fi
+
+    usermod -g "$grupo" "$usuario"
+
+    umount "/srv/ftp/usuarios/$usuario/reprobados" 2>/dev/null
+    umount "/srv/ftp/usuarios/$usuario/recursadores" 2>/dev/null
+
+    mkdir -p "/srv/ftp/usuarios/$usuario/$grupo"
+    mount --bind "/srv/ftp/$grupo" "/srv/ftp/usuarios/$usuario/$grupo"
+
+    chown "$usuario:$grupo" "/srv/ftp/usuarios/$usuario/$usuario"
+
+    echo "Grupo actualizado correctamente."
 }
 
 menu_principal() {
@@ -168,25 +183,11 @@ menu_principal() {
         read -p "Elija una opcion: " opc
 
         case "$opc" in
-            1)
-                crear_usuario
-                systemctl restart vsftpd
-                ;;
-            2)
-                eliminar_usuario
-                systemctl restart vsftpd
-                ;;
-            3)
-                editar_grupo
-                systemctl restart vsftpd
-                ;;
-            4)
-                echo "Saliendo..."
-                exit 0
-                ;;
-            *)
-                echo "Escoja una opcion valida (1 al 4)"
-                ;;
+            1) crear_usuario ; systemctl restart vsftpd ;;
+            2) eliminar_usuario ; systemctl restart vsftpd ;;
+            3) editar_grupo ; systemctl restart vsftpd ;;
+            4) exit 0 ;;
+            *) echo "Escoja una opcion valida (1 al 4)" ;;
         esac
     done
 }
