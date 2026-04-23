@@ -1,5 +1,8 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../Modulos_Linux/usuarios.sh"
+
 verificar_root() {
     if [[ $EUID -ne 0 ]]; then
         echo "Este script debe ejecutarse como root."
