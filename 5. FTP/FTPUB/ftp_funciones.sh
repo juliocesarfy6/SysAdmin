@@ -45,6 +45,7 @@ anon_root=/srv/ftp
 
 local_enable=YES
 write_enable=YES
+local_umask=022
 
 chroot_local_user=YES
 allow_writeable_chroot=YES
@@ -98,6 +99,8 @@ configurar_permisos_base() {
     setfacl -m g:recursadores:rwx /srv/ftp/general
     setfacl -d -m g:reprobados:rwx /srv/ftp/general
     setfacl -d -m g:recursadores:rwx /srv/ftp/general
+
+    echo "Permisos base configurados correctamente."
 }
 
 reiniciar_servicio() {
@@ -141,12 +144,19 @@ crear_usuario() {
 eliminar_usuario() {
     read -p "Usuario a eliminar: " usuario
 
-    umount "/srv/ftp/usuarios/$usuario/general" 2>/dev/null
-    umount "/srv/ftp/usuarios/$usuario/reprobados" 2>/dev/null
-    umount "/srv/ftp/usuarios/$usuario/recursadores" 2>/dev/null
+    local home_dir="/srv/ftp/usuarios/$usuario"
 
-    userdel -r "$usuario" 2>/dev/null
-    rm -rf "/srv/ftp/usuarios/$usuario"
+    if ! id "$usuario" &>/dev/null; then
+        echo "El usuario '$usuario' no existe."
+        return
+    fi
+
+    umount -l "$home_dir/general" 2>/dev/null
+    umount -l "$home_dir/reprobados" 2>/dev/null
+    umount -l "$home_dir/recursadores" 2>/dev/null
+
+    userdel "$usuario" 2>/dev/null
+    rm -rf "$home_dir"
 
     echo "Usuario eliminado correctamente."
 }
